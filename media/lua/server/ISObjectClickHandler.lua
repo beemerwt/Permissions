@@ -1,6 +1,7 @@
 ISObjectClickHandler = {}
 
 ISObjectClickHandler.doRDoubleClick = function (object, x, y)
+    ISObjectClickHandler.rdownObject = nil;
 
     local sq = object:getSquare();
     if instanceof(object, "IsoMovingObject") then
@@ -21,6 +22,8 @@ local function tableContains( _table, _item )
 end
 
 ISObjectClickHandler.doRClick = function (object, x, y)
+    ISObjectClickHandler.rdownObject = nil;
+
     local sq = object:getSquare();
     if instanceof(object, "IsoMovingObject") then
         sq = object:getCurrentSquare();
@@ -121,7 +124,8 @@ function ISObjectClickHandler.doClickDoor(object, playerNum, playerObj)
     end
 
     print("Attempting to open door");
-    sendClientCommand(playerObj, "permission", "openDoor", object)
+    doorObject = object;
+    sendClientCommand(playerObj, "permission", "openDoor", {});
     return true
 end
 
@@ -350,16 +354,12 @@ ISObjectClickHandler.onObjectRightMouseButtonUp = function(object, x, y)
 
     if ISObjectClickHandler.isDoubleClick then
         if object ~= nil and ISObjectClickHandler.rdownObject == object then
-            ISObjectClickHandler.rdownObject = nil;
-
-            ISObjectClickHandler.doRDoubleClick(object, x, y);
+            sendClientCommand(getPlayer(), "permission", "doRDoubleClick", { x = x, y = y });
         end
     else
         local timeHeldDown = getTimestampMs() - (ISObjectClickHandler.lastRClickTime or 0)
         if object ~= nil and ISObjectClickHandler.rdownObject == object and timeHeldDown < 500 then
-            ISObjectClickHandler.rdownObject = nil;
-
-            ISObjectClickHandler.doRClick(object, x, y);
+            sendClientCommand(getPlayer(), "permission", "doRClick", { x = x, y = y });
         end
 
     end
@@ -380,6 +380,46 @@ ISObjectClickHandler.onTick = function()
     ISObjectClickHandler.clickTime = ISObjectClickHandler.clickTime + 1;
 
 end
+
+local log = noise or print
+
+function ISObjectClickHandler.OnServerCommand(module, perm, args)
+    if module ~= "permission" then return end
+
+    local argStr = '';
+    if args ~= nil then
+        for k,v in pairs(args) do argStr = argStr .. tostring(k) .. "=" .. tostring(v) .. "," end
+    end
+    log("ISObjectClickHandler received ServerCommand " .. perm .. ", " .. argStr)
+    
+    local playerObj = getSpecificPlayer(args.playerNum);
+
+    if not args.permission then
+        -- you don't have permission to "perm"
+        playerObj:Say("You don't have permission to " .. perm);
+        return
+    end
+
+    local self = ISObjectClickHandler
+
+    if perm == "doRClick" and self.rdownObject ~= nil then
+        local x = args.x;
+        local y = args.y;
+        log("Attempting to doRClick");
+        ISObjectClickHandler.doRClick(self.rdownObject, x, y);
+    elseif perm == "doRDoubleClick" and self.rdownObject ~= nil then
+        local x = args.x;
+        local y = args.y;
+        log("Attempting to doRDoubleClick");
+        ISObjectClickHandler.doRDoubleClick(self.rdownObject, x, y);
+    elseif perm == "openDoor" and doorObject ~= nil then
+        doorObject:ToggleDoor(playerObj)
+    end
+end
+
+Events.OnServerCommand.Add(ISObjectClickHandler.OnServerCommand);
+-- We are no longer handling client command because it calls itself
+--  and we have verified that OnClientCommand CANNOT be called from the server
 
 --Events.OnTick.Add(ISObjectClickHandler.onTick);
 Events.OnObjectLeftMouseButtonUp.Add(ISObjectClickHandler.onObjectLeftMouseButtonUp);
