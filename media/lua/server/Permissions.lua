@@ -1,13 +1,68 @@
-
-if isClient() and not isCoopHost() then return end
-
 -- Don't know when this applies
 --  basically some server scripts call "noise" when an event is triggered
 --  presumably this is to log while inside another thread
 --  but if it doesn't apply, then we just use print
 local log = noise or print
-
 local debug = true;
+Permissions = {};
+
+local coroutines = {};
+
+function Permissions.RequestPermission(player, permission, func)
+  local co = coroutine.create(function()
+    sendClientCommand(player, "permission", permission, {});
+
+    retryCount = 0;
+    local response = coroutine.yield();
+    while retryCount < 3 do
+
+      -- nullcheck, then check if the permission passed was relevant to this one
+      if response.permission then
+        if response.permission == permission then
+          break
+        end
+      end
+
+      -- otherwise, add to retry count and await again
+      retryCount = retryCount + 1;
+      response = coroutine.yield();
+    end
+
+    if retryCount < 3 then
+      if response.granted then
+        func();
+      end
+    end
+  end);
+
+  table.insert(coroutines, co);
+  coroutine.resume(co); -- start by sending message and yielding response
+end
+
+function Permissions.OnServerCommand(module, perm, args)
+  if module ~= "permission" then return end
+
+  -- resume all coroutines with the given args
+  local remove = {}
+  for i=1,#coroutines do
+    -- check for dead coroutines, append to "remove" list
+    if coroutine.status(coroutines[i]) == "dead" then
+      table.insert(remove, i);
+    else
+      coroutine.resume(coroutines[i], args);
+    end
+  end
+
+  -- remove all dead coroutines
+  for i=1,#remove do
+    table.remove(coroutines, remove[i]);
+  end
+end
+
+if isClient() then
+  Events.OnServerCommand.Add(Permissions.OnServerCommand);
+  return;
+end
 
 -- LuaManager.java
 --  Do not use "fileExists" or "serverFileExists"
@@ -26,10 +81,8 @@ end
 
 json = require "json"
 
-Permissions = {
-  Groups = {},
-  Users = {},
-};
+Permissions.Groups = {}
+Permissions.Users = {}
 
 local permissionsFile = "permissions.json";
 
@@ -179,12 +232,9 @@ function Permissions.OnClientCommand(module, perm, player, args)
 
   log("Permissions received ClientCommand " .. perm .. ", " .. argStr)
 
-  local playerNum = player:getPlayerNum();
-
   -- sends "permission" response specifically to "player"
-  local hasPermission = Permissions.UserHasPermission(player, perm);
-  args.permission = hasPermission;
-  args.playerNum = playerNum;
+  args.permission = perm;
+  args.granted = Permissions.UserHasPermission(player, perm);
 
   sendServerCommand(player, "permission", perm, args);
 end
