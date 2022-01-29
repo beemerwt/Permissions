@@ -4,7 +4,7 @@
 --  but if it doesn't apply, then we just use print
 local log = noise or print
 local debug = true;
-Permissions = {};
+Permissions = _G['Permissions'] or {};
 
 local coroutines = {};
 
@@ -46,9 +46,10 @@ function Permissions.OnServerCommand(module, perm, args)
   local remove = {}
   for i=1,#coroutines do
     -- check for dead coroutines, append to "remove" list
-    if coroutine.status(coroutines[i]) == "dead" then
+    local status = coroutine.status(coroutines[i]);
+    if status == "dead" then
       table.insert(remove, i);
-    else
+    elseif status == "suspended" then
       coroutine.resume(coroutines[i], args);
     end
   end
@@ -61,6 +62,12 @@ end
 
 if isClient() then
   Events.OnServerCommand.Add(Permissions.OnServerCommand);
+
+  -- TODO: doRClick handle from server
+  --  Instead of blocking "doRClick" altogether, we should get a permissions object
+  --  which allows us to see each permission of the action, so we can block out individual non-permissive actions
+
+  Events.OnGameStart.Add(function() Permissions.RegisterActions() end);
   return;
 end
 
