@@ -65,7 +65,6 @@ function Permissions.RegisterActions()
   PermissiveAction(ISWorldObjectContextMenu, "onTeleport", 0);
 
   PermissiveAction(ISWorldObjectContextMenu, "checkWeapon", 1);
-  PermissiveAction(ISWorldObjectContextMenu, "canStoreWater", 1);
   PermissiveAction(ISWorldObjectContextMenu, "haveWaterContainer", 1);
   PermissiveAction(ISWorldObjectContextMenu, "isThumpDoor", 1);
   PermissiveAction(ISWorldObjectContextMenu, "checkBlowTorchForBarricade", 1);
@@ -92,12 +91,10 @@ function Permissions.RegisterActions()
   );
 
   PermissiveAction(ISWorldObjectContextMenu, "isTrappedAdjacentToWindow", 2);
-  PermissiveAction(ISWorldObjectContextMenu, "canCleanBlood", 2);
   PermissiveAction(ISWorldObjectContextMenu, "doCleanBlood", 2);
   PermissiveAction(ISWorldObjectContextMenu, "doRemoveGrass", 2);
   PermissiveAction(ISWorldObjectContextMenu, "onFishing", 2);
   PermissiveAction(ISWorldObjectContextMenu, "onFishingNet", 2);
-  PermissiveAction(ISWorldObjectContextMenu, "getFishingLure", 2);
   PermissiveAction(ISWorldObjectContextMenu, "doChopTree", 2);
 
   PermissiveAction(ISWorldObjectContextMenu, "onGetCompost", 3);
@@ -169,7 +166,6 @@ function Permissions.RegisterActions()
   PermissiveAction(ISWorldObjectContextMenu, "onRemoveGrass", 3);
   PermissiveAction(ISWorldObjectContextMenu, "onRemoveWallVine", 3);
   PermissiveAction(ISWorldObjectContextMenu, "onWalkTo", 3);
-  PermissiveAction(ISWorldObjectContextMenu, "getZone", 3);
   PermissiveAction(ISWorldObjectContextMenu, "onDigGraves", 3);
   PermissiveAction(ISWorldObjectContextMenu, "onBuryCorpse", 3);
   PermissiveAction(ISWorldObjectContextMenu, "onFillGrave", 3);
