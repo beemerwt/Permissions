@@ -6,70 +6,7 @@ local log = noise or print
 local debug = true;
 Permissions = _G['Permissions'] or {};
 
-local coroutines = {};
-
-function Permissions.RequestPermission(player, permission, func)
-  local co = coroutine.create(function()
-    sendClientCommand(player, "permission", permission, {});
-
-    retryCount = 0;
-    local response = coroutine.yield();
-    while retryCount < 3 do
-
-      -- nullcheck, then check if the permission passed was relevant to this one
-      if response.permission then
-        if response.permission == permission then
-          break
-        end
-      end
-
-      -- otherwise, add to retry count and await again
-      retryCount = retryCount + 1;
-      response = coroutine.yield();
-    end
-
-    if retryCount < 3 then
-      if response.granted then
-        func();
-      end
-    end
-  end);
-
-  table.insert(coroutines, co);
-  coroutine.resume(co); -- start by sending message and yielding response
-end
-
-function Permissions.OnServerCommand(module, perm, args)
-  if module ~= "permission" then return end
-
-  -- resume all coroutines with the given args
-  local remove = {}
-  for i=1,#coroutines do
-    -- check for dead coroutines, append to "remove" list
-    local status = coroutine.status(coroutines[i]);
-    if status == "dead" then
-      table.insert(remove, i);
-    elseif status == "suspended" then
-      coroutine.resume(coroutines[i], args);
-    end
-  end
-
-  -- remove all dead coroutines
-  for i=1,#remove do
-    table.remove(coroutines, remove[i]);
-  end
-end
-
-if isClient() then
-  Events.OnServerCommand.Add(Permissions.OnServerCommand);
-
-  -- TODO: doRClick handle from server
-  --  Instead of blocking "doRClick" altogether, we should get a permissions object
-  --  which allows us to see each permission of the action, so we can block out individual non-permissive actions
-
-  Events.OnGameStart.Add(function() Permissions.RegisterActions() end);
-  return;
-end
+if isClient() then return end
 
 -- LuaManager.java
 --  Do not use "fileExists" or "serverFileExists"
@@ -107,6 +44,22 @@ local function createDefaultPermissionsFile()
   Permissions.Users = Users;
 
   Permissions.Save();
+end
+
+function Permissions.AddPermissionToUser(user, permission)
+  if type(user) ~= "string" then
+    user = user:getUsername()
+  end
+
+  if not Permissions.Users[user] then return false end
+  table.insert(Permissions.Users[user].permissions, permission);
+  return true;
+end
+
+function Permissions.AddPermissionToGroup(groupName, permission)
+  if not Permissions.Groups[groupName] then return false end
+  table.insert(Permissions.Groups[groupName].permissions, permission);
+  return true;
 end
 
 function Permissions.GroupHasPermission(groupName, perm)
@@ -224,26 +177,58 @@ function Permissions.Load()
 
   print("Assigning Permissions");
   Permissions.Groups = permissions.groups;
-  Permissions.Users = permissions.users;  
+  Permissions.Users = permissions.users;
+  Permissions.RegisterCommands();
+end
+
+-- Gets a list of permissions from the group and individual player permissions
+function Permissions.GetPlayer(playerObj)
+  local username = playerObj:getUsername();
+  if not Permissions.Users[username] then return nil end
+
+  local user = Permissions.Users[username];
+  local group = Permissions.Groups[user.group];
+
+  local permissions = {};
+
+  for _, perm in ipairs(user.permissions) do
+    table.insert(permissions, perm);
+  end
+
+  for _, perm in ipairs(group.permissions) do
+    table.insert(permissions, perm)
+  end
+
+  return permissions;
 end
 
 -- module and perm are always strings
 -- player is always IsoPlayer
 -- args will always be present, but could be empty
-function Permissions.OnClientCommand(module, perm, player, args)
+function Permissions.OnClientCommand(module, command, player, args)
   if module ~= "permission" then return end
   if args == nil then args = {} end
 
   local argStr = '';
   for k,v in pairs(args) do argStr = argStr .. k .. "=" .. v .. "," end
 
-  log("Permissions received ClientCommand " .. perm .. ", " .. argStr)
+  log("Permissions received ClientCommand " .. command .. ", " .. argStr)
 
-  -- sends "permission" response specifically to "player"
-  args.permission = perm;
-  args.granted = Permissions.UserHasPermission(player, perm);
-
-  sendServerCommand(player, "permission", perm, args);
+  if command == "syncplayer" then
+    local playerPermissions = Permissions.GetPlayer(player);
+    if playerPermissions == nil then
+      Permissions.CreateUser(player);
+      playerPermissions = Permissions.GetPlayer(player);
+    end
+    sendServerCommand(player, "permission", command, playerPermissions)
+  elseif perm == "addpermission" then
+    log("Permissions Received Command to AddPermission.");
+  else
+    -- sends "permission" response specifically to "player"
+    args.permission = command;
+    args.granted = Permissions.UserHasPermission(player, command);
+    sendServerCommand(player, "permission", command, args);
+  end
 end
 
 function Permissions.OnResetLua(reason)
@@ -256,13 +241,15 @@ function Permissions.OnServerStarted()
   Permissions.Load();
 end
 
-
 function Permissions.OnServerStartSaving()
-  noise("Handled Event: OnServerStartSaving");
+  log("Handled Event: OnServerStartSaving");
   Permissions.Save();
 end
 
+-- I don't even know if this is actually working...
+-- OnConnected seems not to work on either side.
 function Permissions.OnConnected()
+  log("Handled Event: OnConnected");
   -- List<IsoPlayer>
   local connected = getOnlinePlayers();
   
@@ -271,13 +258,25 @@ function Permissions.OnConnected()
     local username = player:getUsername();
 
     if not Permissions.PlayerExists(username) then
+      log("Player " .. username .. " joined for the first time.")
       Permissions.CreateUser(username)
     end
   end
 end
 
+-- update all player permissions once a "day"
+function Permissions.OnDayChange()
+  local connected = getOnlinePlayers();
+  for i=1,connected:size() do
+    local player = connected:get(i-1);
+    -- invoke as if player requested...
+    Permissions.OnClientCommand("permission", "syncplayer", player)
+  end
+end
+
 Permissions.Load();
 
+Events.EveryDays.Add(Permissions.OnDayChange);
 Events.OnResetLua.Add(Permissions.OnResetLua);
 Events.OnConnected.Add(Permissions.OnConnected);
 Events.OnServerStarted.Add(Permissions.OnServerStarted);

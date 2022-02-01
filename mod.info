@@ -1,4 +1,5 @@
 name=Permissions
 poster=poster.png
 id=permissions
+require=commands
 description=Add permissions to a multiplayer server!

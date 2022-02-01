@@ -29,6 +29,20 @@ local function PermissiveAction(origin, name, numArgs)
   end
 end
 
+-- TODO: Add the same message like in RequestPermission for when it doesn't exist in playerPermissions
+-- Uses the playerPermissions object to verify that we have permission to do the action
+-- Less secure, but less load.
+local function RequirePermission(permission, origin, numArgs)
+  local argFunc = getArgFunc(numArgs);
+  local old = origin[name];
+  origin[name] = function(...)
+    local tArgs = { ... }
+    if Permissions.HasPermission(permission) then
+      argFunc(old, tArgs);
+    end
+  end
+end
+
 -- Binds multiple functions to one permission
 -- Params:
 -- String permission  - The permission required to perform the actions
@@ -46,7 +60,7 @@ local function PermissiveActions(permission, origin, ...)
       Permissions.RequestPermission(getPlayer(), permission, function()
         argFunc(old, tArgs)
       end)
-    end    
+    end
   end
 end
 
@@ -55,6 +69,87 @@ local function BindAction(funcName, numArgs)
     args = numArgs,
     name = funcName
   };
+end
+
+local coroutines = {};
+
+function Permissions.RequestPermission(player, permission, func)
+  local co = coroutine.create(function()
+    sendClientCommand(player, "permission", permission, {});
+
+    retryCount = 0;
+    local response = coroutine.yield();
+    while retryCount < 3 do
+
+      -- nullcheck, then check if the permission passed was relevant to this one
+      if response.permission then
+        if response.permission == permission then
+          break
+        end
+      end
+
+      -- otherwise, add to retry count and await again
+      retryCount = retryCount + 1;
+      response = coroutine.yield();
+    end
+
+    if retryCount < 3 then
+      if response.granted then
+        func();
+      end
+    end
+  end);
+
+  table.insert(coroutines, co);
+  coroutine.resume(co); -- start by sending message and yielding response
+end
+
+function Permissions.HasPermission(permission)
+  if not Permissions.playerPermissions then return end
+  for _, perm in ipairs(Permissions.playerPermissions) do
+    if perm == "*" or perm == permission then
+      return true
+    end
+  end
+
+  return false
+end
+
+function Permissions.OnServerCommand(module, perm, args)
+  if module ~= "permission" then return end
+
+  if perm == "syncplayer" then
+    print("Player has synchronized with server.")
+    Permissions.SyncPlayer(args);
+  else
+    -- resume all coroutines with the given args
+    local remove = {}
+    for i=1,#coroutines do
+      -- check for dead coroutines, append to "remove" list
+      local status = coroutine.status(coroutines[i]);
+      if status == "dead" then
+        table.insert(remove, i);
+      elseif status == "suspended" then
+        coroutine.resume(coroutines[i], args);
+      end
+    end
+
+    -- remove all dead coroutines
+    for i=1,#remove do
+      table.remove(coroutines, remove[i]);
+    end
+  end
+end
+
+function Permissions.SyncPlayer(args)
+  if type(args) ~= "table" then
+    print("Synchronizing Player with Server Permissions");
+    sendClientCommand(getPlayer(), "permission", "syncplayer", {})
+  else
+    print("Received Player Permissions from Server");
+    Permissions.playerPermissions = args;
+    Events.OnTick.Remove(Permissions.SyncPlayer);
+  end
 end
 
 function Permissions.RegisterActions()
@@ -280,12 +375,16 @@ function Permissions.RegisterActions()
   ------------------------------------------------
   -- Normal "Click" permissions
   ------------------------------------------------
-  PermissiveAction(ISObjectClickHandler, "doClick", 3)
-  PermissiveAction(ISObjectClickHandler, "doDoubleClick", 3)
-  PermissiveAction(ISObjectClickHandler, "doClickCurtain", 3)
-  PermissiveAction(ISObjectClickHandler, "doClickDoor", 3)
-  PermissiveAction(ISObjectClickHandler, "doClickLightSwitch", 3)
-  PermissiveAction(ISObjectClickHandler, "doClickThumpable", 3)
-  PermissiveAction(ISObjectClickHandler, "doClickWindow", 3)
-  PermissiveAction(ISObjectClickHandler, "doClickSpecificObject", 3)
+  RequirePermission(ISObjectClickHandler, "doClick", 3)
+  RequirePermission(ISObjectClickHandler, "doDoubleClick", 3)
+  RequirePermission(ISObjectClickHandler, "doClickCurtain", 3)
+  RequirePermission(ISObjectClickHandler, "doClickDoor", 3)
+  RequirePermission(ISObjectClickHandler, "doClickLightSwitch", 3)
+  RequirePermission(ISObjectClickHandler, "doClickThumpable", 3)
+  RequirePermission(ISObjectClickHandler, "doClickWindow", 3)
+  RequirePermission(ISObjectClickHandler, "doClickSpecificObject", 3)
 end
+
+Events.OnServerCommand.Add(Permissions.OnServerCommand);
+Events.OnGameStart.Add(Permissions.RegisterActions);
+Events.OnTick.Add(Permissions.SyncPlayer);
